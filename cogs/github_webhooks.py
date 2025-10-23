@@ -62,7 +62,7 @@ class WebhookServerCog(commands.Cog):
         runner = web.AppRunner(app)
         await runner.setup()
         
-        # El servidor escucha en todas las IPs ('0.0.0.0') en el puerto 8080
+        # El servidor escucha en todas las IPs ('0.0.0.0') en el puerto 8081
         # Puedes cambiar el puerto si es necesario.
         port = 8081
         self.web_server = web.TCPSite(runner, '0.0.0.0', port)
@@ -129,6 +129,7 @@ class WebhookServerCog(commands.Cog):
 
     # --- Manejadores de Eventos Específicos ---
 
+
     async def handle_pull_request(self, payload: dict):
         """Procesa eventos de Pull Request."""
         action = payload.get('action')
@@ -144,31 +145,46 @@ class WebhookServerCog(commands.Cog):
 
         # Evento: Nuevo PR Abierto
         if action == 'opened':
+            
+            
             embed = discord.Embed(
-                title=f"New Pull Request: {pr['title']}",
+                title=f"New Pull Request: {pr['title']}", # <-- Formato de la imagen
                 url=pr['html_url'],
                 color=COLOR_PR_OPEN
             )
+            # Autor del embed: El usuario que abrió el PR
             embed.set_author(
-                name=pr['user']['login'],
+                name=pr['user']['login'], # <-- Formato de la imagen
                 icon_url=pr['user']['avatar_url'],
                 url=pr['user']['html_url']
             )
+            
             embed.add_field(name="Branch", value=f"`{pr['head']['ref']}`", inline=True)
             embed.add_field(name="Commits", value=str(pr['commits']), inline=True)
-            embed.set_footer(text=f"PR #{payload.get('number')}")
+
+            # Este campo es redundante con set_author, pero es lo solicitado.
+            embed.add_field(
+                name="Author", 
+                value=f"[{pr['user']['login']}]({pr['user']['html_url']})", 
+                inline=True
+            )
+            
+            embed.set_footer(text=f"PR #{payload.get('number')}") # <-- Formato de la imagen
+
 
         # Evento: PR Merged
         elif action == 'closed' and pr.get('merged') is True:
+            
+            
             embed = discord.Embed(
                 title=f"Pull Request Merged: {pr['title']}",
                 url=pr['html_url'],
                 color=COLOR_PR_MERGED
             )
-            # El 'merger' puede no estar disponible si el PR se cerró
-            # sin mergearse, pero aquí 'merged' es True, así que usamos 'merged_by'
+            
             merger = pr.get('merged_by')
             if merger:
+                 # Autor del embed: El usuario que hizo el merge
                  embed.set_author(
                     name=merger['login'],
                     icon_url=merger['avatar_url'],
@@ -178,7 +194,15 @@ class WebhookServerCog(commands.Cog):
             embed.add_field(name="Branch Merged", value=f"`{pr['head']['ref']}`", inline=True)
             embed.add_field(name="To", value=f"`{pr['base']['ref']}`", inline=True)
             embed.add_field(name="Commits", value=str(pr['commits']), inline=True)
-            embed.set_footer(text=f"PR #{payload.get('number')}")
+
+            # Aquí añadimos al autor *original* del PR
+            embed.add_field(
+                name="Author", 
+                value=f"[{pr['user']['login']}]({pr['user']['html_url']})", 
+                inline=True
+            )
+
+            embed.set_footer(text=f"PR #{payload.get('number')}") # <-- Formato de la imagen
 
         # Si creamos un embed, lo enviamos
         if embed:
@@ -208,28 +232,21 @@ class WebhookServerCog(commands.Cog):
             
         conclusion = workflow_run.get('conclusion')
         
-        # --- INICIO DE LA CORRECCIÓN ---
-        
-        link_to_url = ""
-        repo_html_url = payload.get('repository', {}).get('html_url')
-
-        # Verificamos si hay PRs asociados y si tenemos la URL del repo
-        if workflow_run['pull_requests'] and len(workflow_run['pull_requests']) > 0 and repo_html_url:
-            # Construimos la URL al PR usando el número del PR
-            pr_number = workflow_run['pull_requests'][0]['number']
-            link_to_url = f"{repo_html_url}/pull/{pr_number}"
+        # El link en tus ejemplos parece ser el del PR.
+        # El payload de 'workflow_run' incluye los PRs asociados.
+        link_to_pr = ""
+        if workflow_run['pull_requests'] and len(workflow_run['pull_requests']) > 0:
+            link_to_pr = workflow_run['pull_requests'][0]['html_url']
         else:
-            # Si no hay PR (ej. un push a 'main'), linkeamos a la propia ejecución del workflow
-            link_to_url = workflow_run['html_url']
-            
-        # --- FIN DE LA CORRECCIÓN ---
+            # Si no hay PR, linkeamos a la propia ejecución del workflow
+            link_to_pr = workflow_run['html_url']
 
         embed = None
 
         if conclusion == 'success':
             embed = discord.Embed(
                 title=f"Workflow Run Succeeded: {workflow['name']}",
-                url=link_to_url,  # Usamos la variable corregida
+                url=link_to_pr,
                 color=COLOR_TEST_SUCCESS
             )
             embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
@@ -238,7 +255,7 @@ class WebhookServerCog(commands.Cog):
         elif conclusion == 'failure':
             embed = discord.Embed(
                 title=f"Workflow Run Failed: {workflow['name']}",
-                url=link_to_url,  # Usamos la variable corregida
+                url=link_to_pr,
                 color=COLOR_TEST_FAILURE
             )
             embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
