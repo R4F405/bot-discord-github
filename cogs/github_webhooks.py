@@ -214,67 +214,71 @@ class WebhookServerCog(commands.Cog):
                 print(f"Error al enviar embed: {e}")
 
     async def handle_workflow_run(self, payload: dict):
-        """Procesa eventos de Workflow Run."""
-        action = payload.get('action')
-        
-        # Solo nos interesa cuando un workflow se completa
-        if action != 'completed':
-            return
-            
-        workflow_run = payload.get('workflow_run')
-        workflow = payload.get('workflow')
-        if not workflow_run or not workflow:
-            return
+    """Procesa eventos de Workflow Run."""
+    action = payload.get('action')
 
-        channel = await self.get_target_channel()
-        if not channel:
-            return
-            
-        conclusion = workflow_run.get('conclusion')
-        
-        # El link en tus ejemplos parece ser el del PR.
-        # El payload de 'workflow_run' incluye los PRs asociados.
-        link_to_pr = ""
-        if workflow_run['pull_requests'] and len(workflow_run['pull_requests']) > 0:
-            link_to_pr = workflow_run['pull_requests'][0]['html_url']
-        else:
-            # Si no hay PR, linkeamos a la propia ejecución del workflow
-            link_to_pr = workflow_run['html_url']
+    # Solo nos interesa cuando un workflow se completa
+    if action != 'completed':
+        return
 
-        embed = None
+    workflow_run = payload.get('workflow_run')
+    workflow = payload.get('workflow')
+    if not workflow_run or not workflow:
+        return
 
-        if conclusion == 'success':
-            embed = discord.Embed(
-                title=f"Workflow Run Succeeded: {workflow['name']}",
-                url=link_to_pr,
-                color=COLOR_TEST_SUCCESS
-            )
-            embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
-            embed.add_field(name="Conclusion", value="✅ Success", inline=True)
+    channel = await self.get_target_channel()
+    if not channel:
+        return
 
-        elif conclusion == 'failure':
-            embed = discord.Embed(
-                title=f"Workflow Run Failed: {workflow['name']}",
-                url=link_to_pr,
-                color=COLOR_TEST_FAILURE
-            )
-            embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
-            embed.add_field(name="Conclusion", value="❌ Failure", inline=True)
+    conclusion = workflow_run.get('conclusion')
 
-        # Enviamos el embed si es 'success' o 'failure'
-        if embed:
-            embed.set_author(
-                name=workflow_run['actor']['login'],
-                icon_url=workflow_run['actor']['avatar_url'],
-                url=workflow_run['actor']['html_url']
-            )
-            embed.set_footer(text=f"Workflow Run ID: {workflow_run['id']}")
-            try:
-                await channel.send(embed=embed)
-            except discord.Forbidden:
-                print(f"Error: El bot no tiene permisos para enviar mensajes en #{channel.name}")
-            except Exception as e:
-                print(f"Error al enviar embed: {e}")
+    # --- CÓDIGO CORREGIDO ---
+    link_to_pr = ""
+    # Primero, revisamos si la lista de PRs existe y no está vacía
+    if workflow_run.get('pull_requests') and len(workflow_run['pull_requests']) > 0:
+        # Usamos .get('html_url') para obtener la URL de forma segura
+        link_to_pr = workflow_run['pull_requests'][0].get('html_url')
+
+    # Si 'link_to_pr' sigue vacío (porque no había PRs o no tenían 'html_url'),
+    # usamos la URL del propio workflow como fallback.
+    if not link_to_pr:
+        link_to_pr = workflow_run.get('html_url', '#') # Usamos '#' como último recurso
+    # --- FIN DEL CÓDIGO CORREGIDO ---
+
+    embed = None
+
+    if conclusion == 'success':
+        embed = discord.Embed(
+            title=f"Workflow Run Succeeded: {workflow['name']}",
+            url=link_to_pr,
+            color=COLOR_TEST_SUCCESS
+        )
+        embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
+        embed.add_field(name="Conclusion", value="✅ Success", inline=True)
+
+    elif conclusion == 'failure':
+        embed = discord.Embed(
+            title=f"Workflow Run Failed: {workflow['name']}",
+            url=link_to_pr,
+            color=COLOR_TEST_FAILURE
+        )
+        embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
+        embed.add_field(name="Conclusion", value="❌ Failure", inline=True)
+
+    # Enviamos el embed si es 'success' o 'failure'
+    if embed:
+        embed.set_author(
+            name=workflow_run['actor']['login'],
+            icon_url=workflow_run['actor']['avatar_url'],
+            url=workflow_run['actor']['html_url']
+        )
+        embed.set_footer(text=f"Workflow Run ID: {workflow_run['id']}")
+        try:
+            await channel.send(embed=embed)
+        except discord.Forbidden:
+            print(f"Error: El bot no tiene permisos para enviar mensajes en #{channel.name}")
+        except Exception as e:
+            print(f"Error al enviar embed: {e}")
 
 
 # Esta función 'setup' es la que discord.py busca al cargar una extensión
