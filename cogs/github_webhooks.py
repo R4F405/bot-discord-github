@@ -64,7 +64,7 @@ class WebhookServerCog(commands.Cog):
         
         # El servidor escucha en todas las IPs ('0.0.0.0') en el puerto 8081
         # Puedes cambiar el puerto si es necesario.
-        port = 8081
+        port = 8082
         self.web_server = web.TCPSite(runner, '0.0.0.0', port)
         
         try:
