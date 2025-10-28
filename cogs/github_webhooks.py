@@ -10,6 +10,7 @@ COLOR_PR_OPEN = discord.Color.blue()
 COLOR_PR_MERGED = discord.Color.purple()
 COLOR_TEST_SUCCESS = discord.Color.green()
 COLOR_TEST_FAILURE = discord.Color.red()
+COLOR_COMMENT = discord.Color.orange()
 
 
 class WebhookServerCog(commands.Cog):
@@ -123,6 +124,10 @@ class WebhookServerCog(commands.Cog):
             await self.handle_pull_request(payload)
         elif event_type == 'workflow_run':
             await self.handle_workflow_run(payload)
+        elif event_type == 'issue_comment':
+            await self.handle_issue_comment(payload)
+        elif event_type == 'pull_request_review_comment':
+            await self.handle_pr_review_comment(payload)
         
         # 5. Responder a GitHub que todo está OK
         return web.Response(status=200, text="OK")
@@ -212,6 +217,116 @@ class WebhookServerCog(commands.Cog):
                 print(f"Error: El bot no tiene permisos para enviar mensajes en #{channel.name}")
             except Exception as e:
                 print(f"Error al enviar embed: {e}")
+
+    async def handle_issue_comment(self, payload: dict):
+        """Procesa comentarios en Pull Requests (issue_comment event)."""
+        action = payload.get('action')
+        
+        # Solo procesar cuando se crea un comentario
+        if action != 'created':
+            return
+        
+        # Verificar si el comentario es en un PR (no en un issue normal)
+        issue = payload.get('issue')
+        if not issue or 'pull_request' not in issue:
+            return
+        
+        comment = payload.get('comment')
+        if not comment:
+            return
+        
+        channel = await self.get_target_channel()
+        if not channel:
+            return
+        
+        # Truncar el comentario si es muy largo
+        comment_body = comment.get('body', '')
+        if len(comment_body) > 1024:
+            comment_body = comment_body[:1021] + "..."
+        
+        embed = discord.Embed(
+            title=f"New Comment on PR: {issue['title']}",
+            url=comment['html_url'],
+            description=comment_body,
+            color=COLOR_COMMENT
+        )
+        
+        # Autor del comentario
+        embed.set_author(
+            name=comment['user']['login'],
+            icon_url=comment['user']['avatar_url'],
+            url=comment['user']['html_url']
+        )
+        
+        embed.set_footer(text=f"PR #{issue['number']}")
+        
+        try:
+            await channel.send(embed=embed)
+        except discord.Forbidden:
+            print(f"Error: El bot no tiene permisos para enviar mensajes en #{channel.name}")
+        except Exception as e:
+            print(f"Error al enviar embed: {e}")
+
+    async def handle_pr_review_comment(self, payload: dict):
+        """Procesa comentarios en la revisión de código (pull_request_review_comment event)."""
+        action = payload.get('action')
+        
+        # Solo procesar cuando se crea un comentario
+        if action != 'created':
+            return
+        
+        pull_request = payload.get('pull_request')
+        comment = payload.get('comment')
+        
+        if not pull_request or not comment:
+            return
+        
+        channel = await self.get_target_channel()
+        if not channel:
+            return
+        
+        # Truncar el comentario si es muy largo
+        comment_body = comment.get('body', '')
+        if len(comment_body) > 1024:
+            comment_body = comment_body[:1021] + "..."
+        
+        embed = discord.Embed(
+            title=f"Review Comment on PR: {pull_request['title']}",
+            url=comment['html_url'],
+            description=comment_body,
+            color=COLOR_COMMENT
+        )
+        
+        # Autor del comentario
+        embed.set_author(
+            name=comment['user']['login'],
+            icon_url=comment['user']['avatar_url'],
+            url=comment['user']['html_url']
+        )
+        
+        # Información adicional sobre el archivo y línea comentada
+        if comment.get('path'):
+            embed.add_field(
+                name="File",
+                value=f"`{comment['path']}`",
+                inline=True
+            )
+        
+        if comment.get('line'):
+            embed.add_field(
+                name="Line",
+                value=str(comment['line']),
+                inline=True
+            )
+        
+        embed.set_footer(text=f"PR #{pull_request['number']}")
+        
+        try:
+            await channel.send(embed=embed)
+        except discord.Forbidden:
+            print(f"Error: El bot no tiene permisos para enviar mensajes en #{channel.name}")
+        except Exception as e:
+            print(f"Error al enviar embed: {e}")
 
     async def handle_workflow_run(self, payload: dict):
         """Procesa eventos de Workflow Run."""
