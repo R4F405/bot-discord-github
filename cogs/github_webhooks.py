@@ -3,9 +3,8 @@ from discord.ext import commands
 from aiohttp import web
 import hmac
 import hashlib
-import config  # Importamos nuestra config
+import config
 
-# --- Constantes de Colores para Embeds ---
 COLOR_PR_OPEN = discord.Color.blue()
 COLOR_PR_MERGED = discord.Color.purple()
 COLOR_TEST_SUCCESS = discord.Color.green()
@@ -14,25 +13,18 @@ COLOR_COMMENT = discord.Color.orange()
 
 
 class WebhookServerCog(commands.Cog):
-    """
-    Este Cog maneja la recepción y procesamiento de Webhooks de GitHub.
-    Inicia un servidor web aiohttp para escuchar en un puerto específico.
-    """
+    """Maneja la recepción y procesamiento de webhooks de GitHub mediante servidor aiohttp."""
 
     def __init__(self, bot: discord.Client):
         self.bot = bot
         self.web_server = None
         self.web_server_task = None
-        # Cacheamos el canal para no tener que buscarlo cada vez
         self._target_channel = None
-        
-        # Creamos una tarea en el loop del bot para iniciar el servidor web
         self.web_server_task = self.bot.loop.create_task(self.start_web_server())
 
     async def get_target_channel(self) -> discord.TextChannel | None:
-        """Obtiene y cachea el objeto del canal de destino."""
+        """Obtiene y cachea el canal de destino configurado."""
         if self._target_channel is None:
-            # Esperamos a que el bot esté listo antes de buscar el canal
             await self.bot.wait_until_ready()
             
             channel = self.bot.get_channel(config.TARGET_CHANNEL_ID)
@@ -55,16 +47,13 @@ class WebhookServerCog(commands.Cog):
             print("Servidor web de webhooks detenido.")
 
     async def start_web_server(self):
-        """Inicia el servidor web aiohttp."""
+        """Inicia el servidor web aiohttp en el puerto 8082."""
         app = web.Application()
-        # Definimos la ruta que coincide con la URL del Webhook en GitHub
         app.add_routes([web.post('/github-webhook', self._webhook_handler)])
         
         runner = web.AppRunner(app)
         await runner.setup()
         
-        # El servidor escucha en todas las IPs ('0.0.0.0') en el puerto 8081
-        # Puedes cambiar el puerto si es necesario.
         port = 8082
         self.web_server = web.TCPSite(runner, '0.0.0.0', port)
         
@@ -75,23 +64,17 @@ class WebhookServerCog(commands.Cog):
             print(f"Error al iniciar el servidor web: {e}")
 
     async def _validate_signature(self, request: web.Request) -> bool:
-        """
-        Valida la firma de GitHub para asegurar que la petición es legítima.
-        """
+        """Valida la firma HMAC de GitHub para verificar autenticidad del webhook."""
         signature_header = request.headers.get('X-Hub-Signature-256')
         if not signature_header:
             print("Petición de Webhook rechazada: Falta la cabecera X-Hub-Signature-256")
             return False
 
-        # Obtenemos el cuerpo de la petición en bytes
         body = await request.read()
-        
-        # Calculamos nuestro hash HMAC
         secret = config.GITHUB_WEBHOOK_SECRET.encode('utf-8')
         h = hmac.new(secret, body, hashlib.sha256)
         expected_signature = 'sha256=' + h.hexdigest()
 
-        # Usamos hmac.compare_digest para una comparación segura
         if not hmac.compare_digest(expected_signature, signature_header):
             print("Petición de Webhook rechazada: Firma inválida.")
             return False
@@ -99,26 +82,20 @@ class WebhookServerCog(commands.Cog):
         return True
 
     async def _webhook_handler(self, request: web.Request):
-        """
-        Manejador principal para todas las peticiones POST a /github-webhook.
-        """
-        # 1. Validar la firma
+        """Procesa las peticiones webhook de GitHub y las enruta al manejador correspondiente."""
         if not await self._validate_signature(request):
             return web.Response(status=401, text="Invalid signature")
 
-        # 2. Obtener el tipo de evento
         event_type = request.headers.get('X-GitHub-Event')
         if not event_type:
             return web.Response(status=400, text="Missing X-GitHub-Event header")
 
-        # 3. Obtener el payload JSON
         try:
             payload = await request.json()
         except Exception as e:
             print(f"Error al parsear JSON del webhook: {e}")
             return web.Response(status=400, text="Invalid JSON payload")
 
-        # 4. Enrutar el evento al manejador correcto
         print(f"Webhook recibido: {event_type}")
         if event_type == 'pull_request':
             await self.handle_pull_request(payload)
@@ -129,11 +106,7 @@ class WebhookServerCog(commands.Cog):
         elif event_type == 'pull_request_review_comment':
             await self.handle_pr_review_comment(payload)
         
-        # 5. Responder a GitHub que todo está OK
         return web.Response(status=200, text="OK")
-
-    # --- Manejadores de Eventos Específicos ---
-
 
     async def handle_pull_request(self, payload: dict):
         """Procesa eventos de Pull Request."""
@@ -148,39 +121,29 @@ class WebhookServerCog(commands.Cog):
 
         embed = None
 
-        # Evento: Nuevo PR Abierto
         if action == 'opened':
-            
-            
             embed = discord.Embed(
-                title=f"New Pull Request: {pr['title']}", # <-- Formato de la imagen
+                title=f"New Pull Request: {pr['title']}",
                 url=pr['html_url'],
                 color=COLOR_PR_OPEN
             )
-            # Autor del embed: El usuario que abrió el PR
             embed.set_author(
-                name=pr['user']['login'], # <-- Formato de la imagen
+                name=pr['user']['login'],
                 icon_url=pr['user']['avatar_url'],
                 url=pr['user']['html_url']
             )
             
             embed.add_field(name="Branch", value=f"`{pr['head']['ref']}`", inline=True)
             embed.add_field(name="Commits", value=str(pr['commits']), inline=True)
-
-            # Este campo es redundante con set_author, pero es lo solicitado.
             embed.add_field(
                 name="Author", 
                 value=f"[{pr['user']['login']}]({pr['user']['html_url']})", 
                 inline=True
             )
             
-            embed.set_footer(text=f"PR #{payload.get('number')}") # <-- Formato de la imagen
+            embed.set_footer(text=f"PR #{payload.get('number')}")
 
-
-        # Evento: PR Merged
         elif action == 'closed' and pr.get('merged') is True:
-            
-            
             embed = discord.Embed(
                 title=f"Pull Request Merged: {pr['title']}",
                 url=pr['html_url'],
@@ -189,8 +152,7 @@ class WebhookServerCog(commands.Cog):
             
             merger = pr.get('merged_by')
             if merger:
-                 # Autor del embed: El usuario que hizo el merge
-                 embed.set_author(
+                embed.set_author(
                     name=merger['login'],
                     icon_url=merger['avatar_url'],
                     url=merger['html_url']
@@ -199,17 +161,14 @@ class WebhookServerCog(commands.Cog):
             embed.add_field(name="Branch Merged", value=f"`{pr['head']['ref']}`", inline=True)
             embed.add_field(name="To", value=f"`{pr['base']['ref']}`", inline=True)
             embed.add_field(name="Commits", value=str(pr['commits']), inline=True)
-
-            # Aquí añadimos al autor *original* del PR
             embed.add_field(
                 name="Author", 
                 value=f"[{pr['user']['login']}]({pr['user']['html_url']})", 
                 inline=True
             )
 
-            embed.set_footer(text=f"PR #{payload.get('number')}") # <-- Formato de la imagen
+            embed.set_footer(text=f"PR #{payload.get('number')}")
 
-        # Si creamos un embed, lo enviamos
         if embed:
             try:
                 await channel.send(embed=embed)
@@ -219,14 +178,12 @@ class WebhookServerCog(commands.Cog):
                 print(f"Error al enviar embed: {e}")
 
     async def handle_issue_comment(self, payload: dict):
-        """Procesa comentarios en Pull Requests (issue_comment event)."""
+        """Procesa comentarios generales en pull requests."""
         action = payload.get('action')
         
-        # Solo procesar cuando se crea un comentario
         if action != 'created':
             return
         
-        # Verificar si el comentario es en un PR (no en un issue normal)
         issue = payload.get('issue')
         if not issue or 'pull_request' not in issue:
             return
@@ -239,7 +196,6 @@ class WebhookServerCog(commands.Cog):
         if not channel:
             return
         
-        # Truncar el comentario si es muy largo
         comment_body = comment.get('body', '')
         if len(comment_body) > 1024:
             comment_body = comment_body[:1021] + "..."
@@ -251,7 +207,6 @@ class WebhookServerCog(commands.Cog):
             color=COLOR_COMMENT
         )
         
-        # Autor del comentario
         embed.set_author(
             name=comment['user']['login'],
             icon_url=comment['user']['avatar_url'],
@@ -268,10 +223,9 @@ class WebhookServerCog(commands.Cog):
             print(f"Error al enviar embed: {e}")
 
     async def handle_pr_review_comment(self, payload: dict):
-        """Procesa comentarios en la revisión de código (pull_request_review_comment event)."""
+        """Procesa comentarios de revisión de código en pull requests."""
         action = payload.get('action')
         
-        # Solo procesar cuando se crea un comentario
         if action != 'created':
             return
         
@@ -285,7 +239,6 @@ class WebhookServerCog(commands.Cog):
         if not channel:
             return
         
-        # Truncar el comentario si es muy largo
         comment_body = comment.get('body', '')
         if len(comment_body) > 1024:
             comment_body = comment_body[:1021] + "..."
@@ -297,14 +250,12 @@ class WebhookServerCog(commands.Cog):
             color=COLOR_COMMENT
         )
         
-        # Autor del comentario
         embed.set_author(
             name=comment['user']['login'],
             icon_url=comment['user']['avatar_url'],
             url=comment['user']['html_url']
         )
         
-        # Información adicional sobre el archivo y línea comentada
         if comment.get('path'):
             embed.add_field(
                 name="File",
@@ -329,10 +280,9 @@ class WebhookServerCog(commands.Cog):
             print(f"Error al enviar embed: {e}")
 
     async def handle_workflow_run(self, payload: dict):
-        """Procesa eventos de Workflow Run."""
+        """Procesa eventos de ejecución de workflows de GitHub Actions."""
         action = payload.get('action')
 
-        # Solo nos interesa cuando un workflow se completa
         if action != 'completed':
             return
 
@@ -347,18 +297,12 @@ class WebhookServerCog(commands.Cog):
 
         conclusion = workflow_run.get('conclusion')
 
-        # --- CÓDIGO CORREGIDO ---
         link_to_pr = ""
-        # Primero, revisamos si la lista de PRs existe y no está vacía
         if workflow_run.get('pull_requests') and len(workflow_run['pull_requests']) > 0:
-            # Usamos .get('html_url') para obtener la URL de forma segura
             link_to_pr = workflow_run['pull_requests'][0].get('html_url')
 
-        # Si 'link_to_pr' sigue vacío (porque no había PRs o no tenían 'html_url'),
-        # usamos la URL del propio workflow como fallback.
         if not link_to_pr:
-            link_to_pr = workflow_run.get('html_url', '#') # Usamos '#' como último recurso
-        # --- FIN DEL CÓDIGO CORREGIDO ---
+            link_to_pr = workflow_run.get('html_url', '#')
 
         embed = None
 
@@ -380,7 +324,6 @@ class WebhookServerCog(commands.Cog):
             embed.add_field(name="Branch", value=f"`{workflow_run['head_branch']}`", inline=True)
             embed.add_field(name="Conclusion", value="❌ Failure", inline=True)
 
-        # Enviamos el embed si es 'success' o 'failure'
         if embed:
             embed.set_author(
                 name=workflow_run['actor']['login'],
@@ -396,6 +339,6 @@ class WebhookServerCog(commands.Cog):
                 print(f"Error al enviar embed: {e}")
 
 
-# Esta función 'setup' es la que discord.py busca al cargar una extensión
 async def setup(bot: discord.Client):
+    """Función de setup requerida por discord.py para cargar el cog."""
     await bot.add_cog(WebhookServerCog(bot))
