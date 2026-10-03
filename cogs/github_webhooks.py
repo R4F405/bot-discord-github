@@ -3,6 +3,7 @@ from discord.ext import commands
 from aiohttp import web
 import hmac
 import hashlib
+import os
 import config
 
 COLOR_PR_OPEN = discord.Color.blue()
@@ -47,14 +48,17 @@ class WebhookServerCog(commands.Cog):
             print("Servidor web de webhooks detenido.")
 
     async def start_web_server(self):
-        """Inicia el servidor web aiohttp en el puerto 8082."""
+        """Inicia el servidor web aiohttp en el puerto definido por PORT (8082 por defecto)."""
         app = web.Application()
-        app.add_routes([web.post('/github-webhook', self._webhook_handler)])
+        app.add_routes([
+            web.post('/github-webhook', self._webhook_handler),
+            web.get('/health', self._health_handler),
+        ])
         
         runner = web.AppRunner(app)
         await runner.setup()
         
-        port = 8082
+        port = int(os.getenv("PORT", 8082))
         self.web_server = web.TCPSite(runner, '0.0.0.0', port)
         
         try:
@@ -62,6 +66,10 @@ class WebhookServerCog(commands.Cog):
             print(f"Servidor de Webhooks iniciado en el puerto {port}...")
         except Exception as e:
             print(f"Error al iniciar el servidor web: {e}")
+
+    async def _health_handler(self, request: web.Request):
+        """Endpoint de salud usado por Docker/Coolify."""
+        return web.Response(status=200, text="OK")
 
     async def _validate_signature(self, request: web.Request) -> bool:
         """Valida la firma HMAC de GitHub para verificar autenticidad del webhook."""
