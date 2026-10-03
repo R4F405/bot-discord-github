@@ -158,6 +158,28 @@ Para pruebas locales, puedes usar [ngrok](https://ngrok.com/download) para expon
 
 **Nota**: Cada vez que reinicies ngrok, la URL cambiará, por lo que deberás actualizarla en GitHub.
 
+## 🐳 Despliegue con Coolify (Docker)
+
+El repositorio incluye un `Dockerfile` listo para producción (Python 3.12 slim, usuario no-root, logs sin buffer y `HEALTHCHECK` sobre `/health`).
+
+1. En Coolify: **+ New Resource → Private/Public Repository** y selecciona este repositorio y la rama `main`.
+2. **Build Pack**: `Dockerfile`.
+3. **Ports Exposes**: `8082`.
+4. **Domains**: asigna un dominio (ej. `https://github-bot.tu-dominio.com`). Coolify (Traefik) genera el certificado HTTPS automáticamente.
+5. **Environment Variables**: añade las mismas variables que en `.env` (no subas el `.env` al repositorio):
+   - `DISCORD_TOKEN`
+   - `GITHUB_WEBHOOK_SECRET`
+   - `TARGET_CHANNEL_ID`
+6. **Deploy**. En los logs deberías ver que el bot se conecta a Discord y que el servidor de webhooks arranca en el puerto 8082.
+7. Actualiza el webhook en GitHub (Settings → Webhooks → Payload URL) con la nueva URL: `https://github-bot.tu-dominio.com/github-webhook`.
+
+**Comprobación**: `curl https://github-bot.tu-dominio.com/health` debe devolver `200`.
+
+**Notas**:
+- El puerto se puede cambiar con la variable `PORT` (por defecto `8082`). Si la cambias, actualiza también *Ports Exposes*.
+- El bot no guarda estado en disco, así que no necesita volúmenes persistentes.
+- Activa **Auto Deploy** en Coolify para redesplegar en cada push a `main`.
+
 ## 🏗️ Arquitectura
 
 El bot opera con dos componentes principales que se ejecutan concurrentemente:
@@ -246,10 +268,10 @@ bot-discord-github/
 
 ### Cambiar Puerto del Servidor
 
-Edita `cogs/github_webhooks.py` y modifica la variable `port` en el método `start_web_server()`:
+Define la variable de entorno `PORT` (por defecto `8082`):
 
-```python
-port = 8082  # Cambia este valor
+```env
+PORT=9000
 ```
 
 ### Cambiar Colores de Embeds
